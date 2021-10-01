@@ -104,16 +104,19 @@ func run() {
 		ClientSecret: agentConf.ClientSecret,
 	}
 
+	// windows 使用 wintty 工具，需要下载以来
+	// linux 无需下载
 	if !agentConf.DisableCommandExecute {
 		go pty.DownloadDependency()
 	}
 	// 上报服务器信息
 	go reportState()
-	// 更新IP信息
+	// 10min 更新一次 IP 信息
 	go monitor.UpdateIP()
 
+	// 20min 检查一次更新 + 开关控制
 	if _, err := semver.Parse(version); err == nil && !agentConf.DisableAutoUpdate {
-		go func() {
+		go func() { // TODO 测试该函数是如何运行的
 			for range updateCh {
 				go func() {
 					defer func() {
