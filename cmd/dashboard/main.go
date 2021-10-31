@@ -36,6 +36,10 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
+	if dao.Conf.GRPCPort == 0 {
+		dao.Conf.GRPCPort = 5555
+	}
+
 	dao.DB, err = gorm.Open(sqlite.Open("data/sqlite.db"), &gorm.Config{
 		CreateBatchSize: 200,
 	})
@@ -44,9 +48,6 @@ func init() {
 	}
 	if dao.Conf.Debug {
 		dao.DB = dao.DB.Debug()
-	}
-	if dao.Conf.GRPCPort == 0 {
-		dao.Conf.GRPCPort = 5555
 	}
 	dao.Cache = cache.New(5*time.Minute, 10*time.Minute)
 
@@ -197,6 +198,8 @@ func main() {
 	go dao.AlertSentinelStart()
 	dao.NewServiceSentinel(serviceSentinelDispatchBus)
 	srv := controller.ServeWeb(dao.Conf.HTTPPort)
+
+	// 用于优雅结束http服务器
 	graceful.Graceful(func() error {
 		return srv.ListenAndServe()
 	}, func(c context.Context) error {
