@@ -1,15 +1,12 @@
 name: Dashboard image
 
 on:
-  workflow_run:
-    workflows: ["Run Tests"]
-    branches: [master]
-    types:
-      - completed
+  push:
+    branches:
+      - my
 
 jobs:
   on-success:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@master
@@ -21,13 +18,6 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Log in to the AliyunCS
-        uses: docker/login-action@master
-        with:
-          registry: registry.cn-shanghai.aliyuncs.com
-          username: ${{ secrets.ALI_USER }}
-          password: ${{ secrets.ALI_PAT }}
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v1
 
@@ -37,12 +27,7 @@ jobs:
       - name: Set up image name
         run: |
           GHRC_IMAGE_NAME=$(echo "ghcr.io/${{ github.repository_owner }}/nezha-dashboard" | tr '[:upper:]' '[:lower:]')
-          if [ ${{ github.repository_owner }} = "naiba" ]
-            then ALI_IMAGE_NAME=$(echo "registry.cn-shanghai.aliyuncs.com/naibahq/nezha-dashboard")
-            else ALI_IMAGE_NAME=$(echo "registry.cn-shanghai.aliyuncs.com/${{ github.repository_owner }}/nezha-dashboard" | tr '[:upper:]' '[:lower:]')
-          fi
           echo "::set-output name=GHRC_IMAGE_NAME::$GHRC_IMAGE_NAME"
-          echo "::set-output name=ALI_IMAGE_NAME::$ALI_IMAGE_NAME"
         id: image-name
 
       - name: Build dasbboard image And Push
@@ -50,20 +35,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64,linux/arm,linux/386
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ steps.image-name.outputs.GHRC_IMAGE_NAME }}
-            ${{ steps.image-name.outputs.ALI_IMAGE_NAME }}
-
-      - name: Purge jsdelivr cache
-        run: |
-          curl -s https://purge.jsdelivr.net/gh/${{ github.repository_owner }}/nezha@master/script/install.sh
-          curl -s https://purge.jsdelivr.net/gh/${{ github.repository_owner }}/nezha@master/script/nezha-agent.service
-          curl -s https://purge.jsdelivr.net/gh/${{ github.repository_owner }}/nezha@master/script/docker-compose.yaml
-          curl -s https://purge.jsdelivr.net/gh/${{ github.repository_owner }}/nezha@master/script/config.yaml
-          LOWER_USERNAME=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          curl -s https://purge.jsdelivr.net/gh/$LOWER_USERNAME/nezha@master/script/install.sh
-          curl -s https://purge.jsdelivr.net/gh/$LOWER_USERNAME/nezha@master/script/nezha-agent.service
-          curl -s https://purge.jsdelivr.net/gh/$LOWER_USERNAME/nezha@master/script/docker-compose.yaml
-          curl -s https://purge.jsdelivr.net/gh/$LOWER_USERNAME/nezha@master/script/config.yaml
