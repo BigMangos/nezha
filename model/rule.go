@@ -42,24 +42,24 @@ func percentage(used, total uint64) float64 {
 }
 
 // Snapshot 未通过规则返回 struct{}{}, 通过返回 nil
-func (u *Rule) Snapshot(cycleTransferStats *CycleTransferStats, server *Server, db *gorm.DB) interface{} {
+func (r *Rule) Snapshot(cycleTransferStats *CycleTransferStats, server *Server, db *gorm.DB) interface{} {
 	// 监控全部但是排除了此服务器
-	if u.Cover == RuleCoverAll && u.Ignore[server.ID] {
+	if r.Cover == RuleCoverAll && r.Ignore[server.ID] {
 		return nil
 	}
 	// 忽略全部但是指定监控了此服务器
-	if u.Cover == RuleCoverIgnoreAll && !u.Ignore[server.ID] {
+	if r.Cover == RuleCoverIgnoreAll && !r.Ignore[server.ID] {
 		return nil
 	}
 
 	// 循环区间流量检测 · 短期无需重复检测
-	if u.IsTransferDurationRule() && u.NextTransferAt[server.ID].After(time.Now()) {
-		return u.LastCycleStatus[server.ID]
+	if r.IsTransferDurationRule() && r.NextTransferAt[server.ID].After(time.Now()) {
+		return r.LastCycleStatus[server.ID]
 	}
 
 	var src float64
 
-	switch u.Type {
+	switch r.Type {
 	case "cpu":
 		src = float64(server.State.CPU)
 	case "memory":
@@ -88,23 +88,23 @@ func (u *Rule) Snapshot(cycleTransferStats *CycleTransferStats, server *Server, 
 		}
 	case "transfer_in_cycle":
 		src = float64(server.State.NetInTransfer - uint64(server.PrevHourlyTransferIn))
-		if u.CycleInterval != 1 {
+		if r.CycleInterval != 1 {
 			var res NResult
-			db.Model(&Transfer{}).Select("SUM(`in`) AS n").Where("created_at > ? AND server_id = ?", u.GetTransferDurationStart(), server.ID).Scan(&res)
+			db.Model(&Transfer{}).Select("SUM(`in`) AS n").Where("created_at > ? AND server_id = ?", r.GetTransferDurationStart(), server.ID).Scan(&res)
 			src += float64(res.N)
 		}
 	case "transfer_out_cycle":
 		src = float64(server.State.NetOutTransfer - uint64(server.PrevHourlyTransferOut))
-		if u.CycleInterval != 1 {
+		if r.CycleInterval != 1 {
 			var res NResult
-			db.Model(&Transfer{}).Select("SUM(`out`) AS n").Where("created_at > ? AND server_id = ?", u.GetTransferDurationStart(), server.ID).Scan(&res)
+			db.Model(&Transfer{}).Select("SUM(`out`) AS n").Where("created_at > ? AND server_id = ?", r.GetTransferDurationStart(), server.ID).Scan(&res)
 			src += float64(res.N)
 		}
 	case "transfer_all_cycle":
 		src = float64(server.State.NetOutTransfer - uint64(server.PrevHourlyTransferOut) + server.State.NetInTransfer - uint64(server.PrevHourlyTransferIn))
-		if u.CycleInterval != 1 {
+		if r.CycleInterval != 1 {
 			var res NResult
-			db.Model(&Transfer{}).Select("SUM(`in`+`out`) AS n").Where("created_at > ?  AND server_id = ?", u.GetTransferDurationStart(), server.ID).Scan(&res)
+			db.Model(&Transfer{}).Select("SUM(`in`+`out`) AS n").Where("created_at > ?  AND server_id = ?", r.GetTransferDurationStart(), server.ID).Scan(&res)
 			src += float64(res.N)
 		}
 	case "load1":
@@ -122,47 +122,47 @@ func (u *Rule) Snapshot(cycleTransferStats *CycleTransferStats, server *Server, 
 	}
 
 	// 循环区间流量检测 · 更新下次需要检测时间
-	if u.IsTransferDurationRule() {
-		seconds := 1800 * ((u.Max - src) / u.Max)
+	if r.IsTransferDurationRule() {
+		seconds := 1800 * ((r.Max - src) / r.Max)
 		if seconds < 180 {
 			seconds = 180
 		}
-		if u.NextTransferAt == nil {
-			u.NextTransferAt = make(map[uint64]time.Time)
+		if r.NextTransferAt == nil {
+			r.NextTransferAt = make(map[uint64]time.Time)
 		}
-		if u.LastCycleStatus == nil {
-			u.LastCycleStatus = make(map[uint64]interface{})
+		if r.LastCycleStatus == nil {
+			r.LastCycleStatus = make(map[uint64]interface{})
 		}
-		u.NextTransferAt[server.ID] = time.Now().Add(time.Second * time.Duration(seconds))
-		if (u.Max > 0 && src > u.Max) || (u.Min > 0 && src < u.Min) {
-			u.LastCycleStatus[server.ID] = struct{}{}
+		r.NextTransferAt[server.ID] = time.Now().Add(time.Second * time.Duration(seconds))
+		if (r.Max > 0 && src > r.Max) || (r.Min > 0 && src < r.Min) {
+			r.LastCycleStatus[server.ID] = struct{}{}
 		} else {
-			u.LastCycleStatus[server.ID] = nil
+			r.LastCycleStatus[server.ID] = nil
 		}
 		if cycleTransferStats.ServerName[server.ID] != server.Name {
 			cycleTransferStats.ServerName[server.ID] = server.Name
 		}
 		cycleTransferStats.Transfer[server.ID] = uint64(src)
-		cycleTransferStats.NextUpdate[server.ID] = u.NextTransferAt[server.ID]
+		cycleTransferStats.NextUpdate[server.ID] = r.NextTransferAt[server.ID]
 		// 自动更新周期流量展示起止时间
-		cycleTransferStats.From = u.GetTransferDurationStart()
-		cycleTransferStats.To = cycleTransferStats.From.Add(time.Hour * time.Duration(u.CycleInterval))
+		cycleTransferStats.From = r.GetTransferDurationStart()
+		cycleTransferStats.To = cycleTransferStats.From.Add(time.Hour * time.Duration(r.CycleInterval))
 	}
 
-	if u.Type == "offline" && float64(time.Now().Unix())-src > 6 {
+	if r.Type == "offline" && float64(time.Now().Unix())-src > 6 {
 		return struct{}{}
-	} else if (u.Max > 0 && src > u.Max) || (u.Min > 0 && src < u.Min) {
+	} else if (r.Max > 0 && src > r.Max) || (r.Min > 0 && src < r.Min) {
 		return struct{}{}
 	}
 
 	return nil
 }
 
-func (rule Rule) IsTransferDurationRule() bool {
-	return strings.HasSuffix(rule.Type, "_cycle")
+func (r Rule) IsTransferDurationRule() bool {
+	return strings.HasSuffix(r.Type, "_cycle")
 }
 
-func (rule Rule) GetTransferDurationStart() time.Time {
-	interval := 3600 * int64(rule.CycleInterval)
-	return time.Unix(rule.CycleStart.Unix()+(time.Now().Unix()-rule.CycleStart.Unix())/interval*interval, 0)
+func (r Rule) GetTransferDurationStart() time.Time {
+	interval := 3600 * int64(r.CycleInterval)
+	return time.Unix(r.CycleStart.Unix()+(time.Now().Unix()-r.CycleStart.Unix())/interval*interval, 0)
 }

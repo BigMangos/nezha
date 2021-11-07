@@ -13,38 +13,42 @@ import (
 const firstNotificationDelay = time.Minute * 15
 
 // 通知方式
-var notifications []model.Notification
-var notificationsLock sync.RWMutex
+var notifications notification
+
+type notification struct {
+	nty  []model.Notification
+	lock sync.RWMutex
+}
 
 func LoadNotifications() {
-	notificationsLock.Lock()
+	notifications.lock.Lock()
 	if err := DB.Find(&notifications).Error; err != nil {
 		panic(err)
 	}
-	notificationsLock.Unlock()
+	notifications.lock.Unlock()
 }
 
 func OnRefreshOrAddNotification(n model.Notification) {
-	notificationsLock.Lock()
-	defer notificationsLock.Unlock()
+	notifications.lock.Lock()
+	defer notifications.lock.Unlock()
 	var isEdit bool
-	for i := 0; i < len(notifications); i++ {
-		if notifications[i].ID == n.ID {
-			notifications[i] = n
+	for i := 0; i < len(notifications.nty); i++ {
+		if notifications.nty[i].ID == n.ID {
+			notifications.nty[i] = n
 			isEdit = true
 		}
 	}
 	if !isEdit {
-		notifications = append(notifications, n)
+		notifications.nty = append(notifications.nty, n)
 	}
 }
 
 func OnDeleteNotification(id uint64) {
-	notificationsLock.Lock()
-	defer notificationsLock.Unlock()
-	for i := 0; i < len(notifications); i++ {
-		if notifications[i].ID == id {
-			notifications = append(notifications[:i], notifications[i+1:]...)
+	notifications.lock.Lock()
+	defer notifications.lock.Unlock()
+	for i := 0; i < len(notifications.nty); i++ {
+		if notifications.nty[i].ID == id {
+			notifications.nty = append(notifications.nty[:i], notifications.nty[i+1:]...)
 			i--
 		}
 	}
@@ -85,10 +89,10 @@ func SendNotification(desc string, muteable bool) {
 		}
 	}
 	// 发出通知
-	notificationsLock.RLock()
-	defer notificationsLock.RUnlock()
-	for i := 0; i < len(notifications); i++ {
-		if err := notifications[i].Send(desc); err != nil {
+	notifications.lock.RLock()
+	defer notifications.lock.RUnlock()
+	for i := 0; i < len(notifications.nty); i++ {
+		if err := notifications.nty[i].Send(desc); err != nil {
 			log.Println("NEZHA>> 发送通知失败：", err)
 		}
 	}
